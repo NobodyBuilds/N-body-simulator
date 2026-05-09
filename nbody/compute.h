@@ -15,7 +15,8 @@ extern "C" {
 	void computephysics(float dt);
 	void registerGLBuffer(unsigned int vboId);
 	void unregisterGLBuffer();
-
+	void changestarsize();
+	void changestarmass();
 #ifdef __cplusplus
 }
 #endif

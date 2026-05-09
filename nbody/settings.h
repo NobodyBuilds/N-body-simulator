@@ -2,10 +2,10 @@
 struct param {
 	// === FLOAT VARIABLES (4 bytes each) ===
 	// Grouped for cache locality and alignment
-	float fixedDt = 1 / 60.0f;
+	float fixedDt = 1 / 120.0f;
 	float simspeed = 1.0f;
 	float size = 1.0f;
-	float particleMass = 0.20f;
+	float particleMass = 1.0f;
 	float cold = 4.500f;
 	float heatMultiplier = 15.0f;
 	float h = 4.0f;
@@ -38,18 +38,20 @@ struct param {
 	float radius = 100.0f;
 	float maxradius = 300.0f;
 	float orbitspeed = 0.5f;
-	float G = 6.67f;
-
+	float G = 1.0f;
+	float dst = 250.0f;
+	float impactspeed = 10.0f;
+	float yspeed = 0.5f;
 	float min_density, max_density, avg_density = 0;
 	float min_neardensity, max_neardensity, avg_neardensity = 0;
 
 
 	double fuc_ms = 0.0;
 	// === INT VARIABLES (4 bytes each) ===
-	int totalBodies = 60000;
+	int totalBodies = 10000;
 	int count = totalBodies;
 	int min_n, max_n, avg_n = 0;
-	int substeps = 2;
+	int substeps = 1;
 	int fpsCount = 0;
 	int mode = 0;
 	int screenWidth;
@@ -57,11 +59,13 @@ struct param {
 
 	// === BOOL VARIABLES (1 byte each) ===
 	bool sph = true;
+	bool gravity = false;
 	bool nopause = true;
 	bool heateffect = true;
 	bool debug = false;
 	bool recordSim = false;
 	bool gui = true;
+	bool lockstar = false;
 };
 extern param settings;
 
@@ -70,15 +74,12 @@ struct data {
 	float particlemass;
 	float h;
 	float spacing;
-	float ndensity;
 	float sdensity;
 	float h2;
 	float pollycoef6;
 	float spikycoef;
 	float pressure;
-	float nearpressure;
 	float restDensity;
-	float nearrestdensity;
 	float spikyGradv;
 	float viscK;
 	float viscstrength;
@@ -88,10 +89,15 @@ struct data {
 	float centermass;
 	float starsize;
 	float maxradius;
+	float dst;
+	float impactspeed;
+	float yspeed;
+	float particlesize;
 	int mode;
 	int count;
 	int screenWidth;
 	int screenHeight;
+	bool lockstar;
 };
 
 extern data gpudata;

@@ -30,6 +30,7 @@ extern "C" void buttons(GLFWwindow* window) {
             settings.nopause = true;
         }
     }
+    predown = down;
 
     //fullcreren button
     bool f11 = glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS;

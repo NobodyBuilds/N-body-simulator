@@ -274,41 +274,15 @@ static void DrawQuickContent()
     ImGui::Checkbox("Simulate long run##q", &settings.recordSim); SYNC;
     ImGui::SetItemTooltip("Renders every frame without skipping.  Useful for recording.");
 
-    // ── Mode ─────────────────────────────────────────────────────────────────
-    Sec("Mode");
-    {
-        const char* modes[] = { "N-Body Only", "SPH Only", "N-Body + SPH" };
-        if (ImGui::Combo("Mode##q", &settings.mode, modes, IM_ARRAYSIZE(modes))) {
-            syncsettings = true;
-        }
-        ImGui::SetItemTooltip("N-Body: pure gravity.  SPH: fluid sim.  Combined: both forces.");
-    }
+    
 
     // ── N-Body quick params ───────────────────────────────────────────────────
-    Sec("N-Body  (see N-Body tab for full detail)");
+    Sec("N-Body  ");
     ImGui::DragFloat("G##q", &settings.G, 0.01f, 0.0f, 100.0f, "%.3f"); SYNC;
     ImGui::SetItemTooltip("Gravitational constant.  Scales all pairwise attraction.");
-    ImGui::DragFloat("Center Mass##q", &settings.centermass, 1.0f, 0.0f, 10000.0f, "%.1f"); SYNC;
-    ImGui::SetItemTooltip("Mass of the central attractor body.");
-    ImGui::DragFloat("Orbit Speed##q", &settings.orbitspeed, 0.01f, 0.0f, 10.0f, "%.3f"); SYNC;
-    ImGui::SetItemTooltip("Initial tangential velocity factor for spawned bodies.");
+    
 
-    // ── SPH quick params (only shown when SPH active) ─────────────────────────
-    if (settings.mode != 0)  // not pure N-Body
-    {
-        Sec("SPH  (see SPH tab for full detail)");
-        if (ImGui::SliderFloat("h##q", &settings.h, 0.1f, 20.0f, "%.2f")) {
-            calcKernels();
-            syncsettings = true;
-        }
-        ImGui::SetItemTooltip("Smoothing radius.  All kernel coefficients update automatically.");
-        ImGui::DragFloat("Rest rho##q", &settings.rest_density, 0.0005f, 0.0f, 1.0f, "%.5f"); SYNC;
-        ImGui::SetItemTooltip("Target equilibrium density.");
-        ImGui::DragFloat("Stiffness k##q", &settings.pressure, 2.0f, 0.0f, 5000.f, "%.0f"); SYNC;
-        ImGui::SetItemTooltip("Compression resistance.");
-        ImGui::DragFloat("Viscosity##q", &settings.visc, 0.01f, 0.0f, 200.f, "%.3f"); SYNC;
-        ImGui::SetItemTooltip("Low = water.  High = honey.");
-    }
+      
 
     // ── Toggles ──────────────────────────────────────────────────────────────
     Sec("Toggles");
@@ -317,7 +291,12 @@ static void DrawQuickContent()
     ImGui::SameLine(140);
     ImGui::Checkbox("Debug##q", &settings.debug); SYNC;
     ImGui::SetItemTooltip("Show neighbor count + density stats in HUD.");
+	ImGui::Spacing();
+	ImGui::Checkbox("SPH active##q", &settings.sph); SYNC;
+	ImGui::SameLine(140);
+	ImGui::Checkbox("gravity active##q", &settings.gravity); SYNC;
 
+        
     // ── Restart ──────────────────────────────────────────────────────────────
     ImGui::Spacing();
     if (DangerButton("Restart"))
@@ -400,7 +379,13 @@ static void DrawNBodyContent()
     // ── Mode ─────────────────────────────────────────────────────────────────
     Sec("Spawn Mode");
     {
-        ImGui::InputInt("spawn mode", &settings.mode); SYNC;
+        static const char* modeNames[] = {
+           "  single star disc",
+           "  double galaxy",
+		   "  sphere cloud",
+           "  earth and thia"
+        };
+        if (ImGui::Combo("##rnmode", &settings.mode, modeNames, 4)) { restartSimulation(); } SYNC;
        }
 
     // ── Gravity ───────────────────────────────────────────────────────────────
@@ -408,35 +393,50 @@ static void DrawNBodyContent()
     ImGui::DragFloat("G##nb", &settings.G, 0.01f, 0.0f, 100.0f, "%.4f"); SYNC;
     ImGui::SetItemTooltip("Gravitational constant.  Scales all pairwise attraction.\nDefault 6.67 (cosmological units).");
 
-    ImGui::DragFloat("Center Mass##nb", &settings.centermass, 1.0f, 0.0f, 100000.0f, "%.1f"); SYNC;
-    ImGui::SetItemTooltip("Mass of the fixed central attractor body.\n0 = no central body (free N-body cloud).");
 
-    // ── Orbits / Spawn ────────────────────────────────────────────────────────
-    Sec("Orbits  &  Spawn");
-    ImGui::DragFloat("Orbit Speed##nb", &settings.orbitspeed, 0.001f, 0.0f, 10.0f, "%.4f"); SYNC;
-    ImGui::SetItemTooltip("Tangential velocity multiplier applied at spawn.\n1.0 = circular orbit around center mass.\n<1 = eccentric / infalling.  >1 = escaping.");
+    if (settings.mode == 0 || settings.mode == 1 || settings.mode == 2) {
 
-    ImGui::DragFloat("Spawn Radius##nb", &settings.radius, 0.5f, 0.0f, 5000.0f, "%.1f"); SYNC;
-    ImGui::SetItemTooltip("Inner spawn radius of the particle disk.");
+		ImGui::Spacing();
+		ImGui::Checkbox("Lock Star Position##nb", &settings.lockstar); SYNC;    
+		ImGui::SetItemTooltip("Keep the central star fixed at the origin, unaffected by gravity from other bodies.\nRecommended for stable orbits in single-star mode.  Disable for more dynamic interactions.");
+        ImGui::Spacing();
 
-    ImGui::DragFloat("Max Radius##nb", &settings.maxradius, 0.5f, 0.0f, 10000.0f, "%.1f"); SYNC;
-    ImGui::SetItemTooltip("Outer edge of the spawn disk.  Particles distributed between Radius and Max Radius.");
-
-    // ── Rendering ─────────────────────────────────────────────────────────────
-    Sec("Rendering");
-    ImGui::DragFloat("Star Size##nb", &settings.starsize, 0.05f, 0.1f, 100.0f, "%.2f"); SYNC;
+        if (ImGui::DragFloat("Star Size##nb", &settings.starsize, 0.05f, 0.1f, 100.0f, "%.2f")) {
+            changestarsize();
+        } SYNC;
     ImGui::SetItemTooltip("Visual point size of the central star body.");
+   
+	ImGui::Spacing();
+    if (ImGui::DragFloat("Center Mass##nb", &settings.centermass, 1.0f, 0.0f, 100000.0f, "%.1f")) {
+        changestarmass();
+    } SYNC;
+        ImGui::SetItemTooltip("Mass of the fixed central attractor body.\n0 = no central body (free N-body cloud).");
+        
+        Sec("Orbits  &  Spawn");
+        ImGui::DragFloat("Orbit Speed##nb", &settings.orbitspeed, 0.001f, 0.0f, 10.0f, "%.4f"); SYNC;
+        ImGui::SetItemTooltip("Tangential velocity multiplier applied at spawn.\n1.0 = circular orbit around center mass.\n<1 = eccentric / infalling.  >1 = escaping.");
 
-    // ── Debug stats ───────────────────────────────────────────────────────────
-    if (settings.debug)
-    {
-        Sec("Debug  (read-only)");
-        ImGui::BeginDisabled();
-        ImGui::Text("bodies:  %d active / %d total", settings.count, settings.totalBodies);
-        ImGui::Text("substeps: %d   dt: %.5f s", settings.substeps, settings.fixedDt);
-        ImGui::EndDisabled();
+        ImGui::DragFloat("Spawn Radius##nb", &settings.radius, 0.5f, 0.0f, 5000.0f, "%.1f"); SYNC;
+        ImGui::SetItemTooltip("Inner spawn radius of the particle disk.");
+
+        ImGui::DragFloat("Max Radius##nb", &settings.maxradius, 0.5f, 0.0f, 10000.0f, "%.1f"); SYNC;
+        ImGui::SetItemTooltip("Outer edge of the spawn disk.  Particles distributed between Radius and Max Radius.");
     }
+    if (settings.mode == 3) {
+    
+		ImGui::DragFloat("impact speed##nb", &settings.impactspeed, 0.001f, 0.0f, 10.0f, "%.4f"); SYNC;
+		ImGui::SetItemTooltip("Initial velocity of the impactor (Thia) towards the target (Earth).");
+        ImGui::Spacing();
+		ImGui::DragFloat("distance##nb", &settings.dst, 0.1f, 0.0f, 10000.0f, "%.1f"); SYNC;
+		ImGui::SetItemTooltip("Initial distance between Earth and Thia at the start of the simulation.");
+		ImGui::Spacing();
+		ImGui::DragFloat("diagnol velocity##nb", &settings.yspeed, 0.001f, 0.0f, 10.0f, "%.4f"); SYNC;
+		ImGui::SetItemTooltip("Initial tangential velocity of the impactor (Thia) perpendicular to the impact direction.");
+    }
+    ImGui::Spacing();
+	ImGui::Checkbox("gravity force##nb", &settings.gravity); 
 
+ 
     ImGui::Spacing();
     if (DangerButton("Restart##nb"))
         restartSimulation();
