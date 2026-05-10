@@ -289,8 +289,7 @@ static void DrawQuickContent()
     ImGui::Checkbox("Heat colour##q", &settings.heateffect);  SYNC;
     ImGui::SetItemTooltip("Shift particle colour by kinetic energy.  Blue = slow.  Red = fast.");
     ImGui::SameLine(140);
-    ImGui::Checkbox("Debug##q", &settings.debug); SYNC;
-    ImGui::SetItemTooltip("Show neighbor count + density stats in HUD.");
+
 	ImGui::Spacing();
 	ImGui::Checkbox("SPH active##q", &settings.sph); SYNC;
 	ImGui::SameLine(140);
@@ -326,10 +325,6 @@ static void DrawSPHContent()
         ImGui::InputFloat("spiky grad", &settings.spikygradv, 0, 0, "%.4e");
         ImGui::InputFloat("visc lap", &settings.viscosity, 0, 0, "%.4e");
         ImGui::InputFloat("self rho", &settings.Sdensity, 0, 0, "%.4e");
-        ImGui::InputFloat("near self", &settings.ndensity, 0, 0, "%.4e");
-        ImGui::Text("neighbor count: min:%d  max: %d  avg: %.1f", settings.min_n, settings.max_n, settings.avg_n);
-        ImGui::Text("density: min:%.4f  max: %.4f  avg: %.4f", settings.min_density, settings.max_density, settings.avg_density);
-        ImGui::Text("near density: min:%.4f  max: %.4f  avg: %.4f", settings.min_neardensity, settings.max_neardensity, settings.avg_neardensity);
         ImGui::EndDisabled();
         ImGui::TreePop();
     }
@@ -343,9 +338,7 @@ static void DrawSPHContent()
     Sec("Pressure");
     ImGui::DragFloat("Stiffness k", &settings.pressure, 2.f, 0.f, 5000.f, "%.0f"); SYNC;
     ImGui::SetItemTooltip("Compression resistance.  Too high = instability.  Start ~100-500, increase gradually.");
-    ImGui::DragFloat("Near k'", &settings.nearpressure, 2.f, 0.f, 10000.f, "%.0f"); SYNC;
-    ImGui::SetItemTooltip("Short-range repulsion.  Prevents collapse at close range.  Keep near the same order as k.");
-
+   
 
     // ── Viscosity ─────────────────────────────────────────────────────────────
     Sec("Viscosity");
@@ -362,11 +355,7 @@ static void DrawSPHContent()
     ImGui::Checkbox("SPH forces##fl", &settings.sph); SYNC;
     ImGui::SetItemTooltip("Master toggle for density + pressure force kernels.\nDisable to watch purely gravity-driven motion.");
 
-    // ── Gravity (SPH context) ─────────────────────────────────────────────────
-    Sec("Gravity");
-    ImGui::SliderFloat("Gravity##fl", &settings.gravityforce, 0.0f, 1000.0f, "%.0f"); SYNC;
-    ImGui::SetItemTooltip("Constant downward acceleration per step.  0 = weightless.");
-
+    
     ImGui::Spacing();
     if (DangerButton("Restart##sph"))
         restartSimulation();
@@ -676,19 +665,7 @@ void ui_init()
             settings.substeps, settings.simspeed);
         lines[nLines++].col = IM_COL32(120, 120, 118, 148);
 
-        if (settings.debug) {
-            snprintf(lines[nLines].text, 128, "neighbor count  min:%d  max:%d  avg:%d",
-                settings.min_n, settings.max_n, settings.avg_n);
-            lines[nLines++].col = IM_COL32(180, 120, 120, 140);
-
-            snprintf(lines[nLines].text, 128, "density  min:%.4f  max:%.4f  avg:%.4f",
-                settings.min_density, settings.max_density, settings.avg_density);
-            lines[nLines++].col = IM_COL32(180, 120, 120, 140);
-
-            snprintf(lines[nLines].text, 128, "near density  min:%.4f  max:%.4f  avg:%.4f",
-                settings.min_neardensity, settings.max_neardensity, settings.avg_neardensity);
-            lines[nLines++].col = IM_COL32(180, 120, 120, 140);
-        }
+        
 
         snprintf(lines[nLines].text, 128, "%s",
             settings.nopause ? "running" : "PAUSED  --  Space to resume");

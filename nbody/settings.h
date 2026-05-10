@@ -10,18 +10,14 @@ struct param {
 	float heatMultiplier = 15.0f;
 	float h = 4.0f;
 	float h2 = h * h;
-	float rest_density = 0.01800f;
+	float rest_density = 0.04500f;
 	float pressure = 200.0f;
-	float nearpressure = 450.0f;
 	float visc = 0.0529f;
-	float gravityforce = 60.0f;
 	float pi = 3.14159265358979323846f;
 	float pollycoef6 = 0.0f;
 	float spikycoef = 0.0f;
 	float Sdensity = 0.0f;
 	float cellSize = 1.0f;
-	float nearRestDensity = 0.153f;//not used atall wasted variable :D
-	float ndensity = 0.0f;
 	float spikygradv = 0.0f;
 	float viscosity = 0.0f;
 	float wx = 0.0f;
@@ -33,12 +29,12 @@ struct param {
 	float fpsTimer = 0.0f;
 	float accumulator = 0.0f;
 	float fps = 0.0f;
-	float centermass = 100.0f;
-	float starsize = 3.0f;
-	float radius = 100.0f;
-	float maxradius = 300.0f;
-	float orbitspeed = 0.5f;
-	float G = 1.0f;
+	float centermass = 5000.0f;
+	float starsize = 15.0f;
+	float radius = 200.0f;
+	float maxradius = 500.0f;
+	float orbitspeed = 1.0f;
+	float G = 6.67f;
 	float dst = 250.0f;
 	float impactspeed = 10.0f;
 	float yspeed = 0.5f;
@@ -59,13 +55,12 @@ struct param {
 
 	// === BOOL VARIABLES (1 byte each) ===
 	bool sph = true;
-	bool gravity = false;
+	bool gravity = true;
 	bool nopause = true;
 	bool heateffect = true;
-	bool debug = false;
 	bool recordSim = false;
 	bool gui = true;
-	bool lockstar = false;
+	bool lockstar = true;
 };
 extern param settings;
 

@@ -9,7 +9,6 @@ const unsigned int screenHeight = 900;
 
 static bool predown = false;
 static bool f11down = false;
-static bool xdown = false;
 static bool runstatedown = false;
 static bool hdown = false;
 
@@ -45,19 +44,7 @@ extern "C" void buttons(GLFWwindow* window) {
         }
     }
     f11down = f11;
-    //debug menu
-    bool x = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
-    if (x && !xdown)
-    {
-        if (settings.debug == true) {
-            settings.debug = false;
-        }
-        else if (settings.debug == false) {
-            settings.debug = true;
-        }
-    }
-    xdown = x;
-
+    
 
     bool h = glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
     if (h && !hdown)

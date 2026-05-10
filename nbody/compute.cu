@@ -259,7 +259,7 @@ __global__ void packToVBOKernel(
 
         float speed = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 
-        float heat = speed * 0.5f;
+        float heat = (speed + size[i].y )* 0.5f;
         // heat += mass[i];
         a.w += (heat * heatMultipler) * dt; // acl.w=heat;
 
@@ -633,7 +633,6 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
     float m_i = __ldg(&pdata[i].y);
 
     float rho = m_i * d.sdensity;
-    float mindensity = rho * 0.5f;
 
     // Search 27 neighboring cells
     for (int dz = -1; dz <= 1; dz++)
@@ -683,8 +682,6 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
                         // float d = spikycoef2 * v2 * v2;
                         float m_j = __ldg(&pdata[j].y); // mass
                         rho += m_j * D;
-                        float x = d.h - r;
-                        float nd = d.spikycoef * x * x * x;
                     }
                 }
             }
@@ -695,12 +692,12 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
               rho);
      }*/
 
-    pos[i].w = fmaxf(rho, mindensity);
+    pos[i].w = fmaxf(rho, 1e-6f);
     //pos[i].w = rho;
     //vel[i].w = rhon;
 }
 
-__global__ void computePressure(float cellSize, const float4* __restrict__ pos, float4* acl, float4* vel, int hs, int* cellstart, int* cellend, int* particleIndex, int* ncount,float4* pdata)
+__global__ void computePressure(float cellSize, const float4* __restrict__ pos, float4* acl, float4* vel, int hs, int* cellstart, int* cellend, int* particleIndex, float4* pdata)
 {
 
     // no shared memory because the arrays are sorted and coalesced access is good enough, also we are doing more computation per neighbor which helps hide latency.
@@ -780,7 +777,6 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
                                   j, r, density[j], p_j);
                           }*/
                         float rho_j = pj.w;
-                        float nrho_j = vj.w;
                         float x = d.h - r;
                         float gradW = d.spikyGradv * x * x; // precomputed gradw in negative value
 
@@ -811,9 +807,9 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     float4 accl;
     float4 delta;
 
-    accl.z = (force.z + visc.z) / rho_i;
-    accl.x = (force.x + visc.x) / rho_i;
-    accl.y = (force.y + visc.y) / rho_i;
+    accl.z = (force.z + visc.z)/rho_i ;
+    accl.x = (force.x + visc.x)/rho_i ;
+    accl.y = (force.y + visc.y)/rho_i ;
     accl.w = 0.0f;
 
 
@@ -911,14 +907,14 @@ __global__ void gravityKernel(float4* pos, float4* acl,float4* pdata) {
         float dx = pj.x - p.x;
 		float dy = pj.y - p.y;
         float dz = pj.z - p.z;
-		float dist = dx * dx + dy * dy + dz * dz + 1e-12f;
+		float dist = dx * dx + dy * dy + dz * dz + (0.1f* d.h) * (0.1f* d.h);
 		float invdist = rsqrtf(dist);
 		float inv3 = invdist * invdist * invdist;
 		  
         float force = d.G *( m_j   * inv3);
-		a.x += (force/m_i) * dx;
-        a.y += (force/m_i) * dy;
-		a.z += (force/m_i) * dz;
+		a.x += (force) * dx;
+        a.y += (force) * dy;
+		a.z += (force) * dz;
 
     }
     a.w = 0.0f;
@@ -1202,10 +1198,10 @@ extern "C" void computephysics(float dt)
                 buildDynamicGrid(d_cellsize, positions, deltaTime);
 
                 // uses p pos for stability
-                computeDensity << <blocks, THREADS >> > (d_cellsize, positions_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex,pdata);
+                computeDensity << <blocks, THREADS >> > (d_cellsize, positions_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex,pdata);
 
                 // reads from pridicted pos and writes back to orginal velocity array with velocity verlet 2nd step
-                computePressure << <blocks, THREADS >> > (d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, ncount,pdata);
+                computePressure << <blocks, THREADS >> > (d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata);
 
 
 
@@ -1218,64 +1214,6 @@ extern "C" void computephysics(float dt)
 
 				starCollisionKernel << <blocks, THREADS >> > (positions, velocity, pdata, isstar);
         }
-        // DEBUG INFO no always active
-        static int framecount = 0;
-        ++framecount;
-        if (framecount >= 100 && settings.debug == true)
-        {
-
-            int izero = 0, ibig = INT_MAX;
-            float fzero = 0.0f, fbig = FLT_MAX, fnbig = -FLT_MAX;
-
-            cudaMemcpyToSymbol(min_nb, &ibig, sizeof(int));
-            cudaMemcpyToSymbol(max_nb, &izero, sizeof(int));
-            cudaMemcpyToSymbol(avg_nb, &izero, sizeof(int));
-
-            cudaMemcpyToSymbol(min_Density, &fbig, sizeof(float));
-            cudaMemcpyToSymbol(max_Density, &fnbig, sizeof(float));
-            cudaMemcpyToSymbol(avg_Density, &fzero, sizeof(float));
-
-            cudaMemcpyToSymbol(min_nearDensity, &fbig, sizeof(float));
-            cudaMemcpyToSymbol(max_nearDensity, &fnbig, sizeof(float));
-            cudaMemcpyToSymbol(avg_nearDensity, &fzero, sizeof(float));
-
-            debug << <blocks, THREADS >> > (totalBodies, positions_sorted, velocity_sorted, ncount);
-            cudaDeviceSynchronize();
-
-            // read back
-            int h_minN, h_maxN, h_sumN;
-            float h_minD, h_maxD, h_sumD;
-            float h_minND, h_maxND, h_sumND;
-
-            cudaMemcpyFromSymbol(&h_minN, min_nb, sizeof(int));
-            cudaMemcpyFromSymbol(&h_maxN, max_nb, sizeof(int));
-            cudaMemcpyFromSymbol(&h_sumN, avg_nb, sizeof(int));
-
-            cudaMemcpyFromSymbol(&h_minD, min_Density, sizeof(float));
-            cudaMemcpyFromSymbol(&h_maxD, max_Density, sizeof(float));
-            cudaMemcpyFromSymbol(&h_sumD, avg_Density, sizeof(float));
-
-            cudaMemcpyFromSymbol(&h_minND, min_nearDensity, sizeof(float));
-            cudaMemcpyFromSymbol(&h_maxND, max_nearDensity, sizeof(float));
-            cudaMemcpyFromSymbol(&h_sumND, avg_nearDensity, sizeof(float));
-
-            // push to settings
-            settings.min_n = h_minN;
-            settings.max_n = h_maxN;
-            settings.avg_n = (float)h_sumN / totalBodies;
-
-            settings.min_density = h_minD;
-            settings.max_density = h_maxD;
-            settings.avg_density = h_sumD / totalBodies;
-
-            settings.min_neardensity = h_minND;
-            settings.max_neardensity = h_maxND;
-            settings.avg_neardensity = h_sumND / totalBodies;
-
-            framecount = 0;
-        }
-        //   cudaMemcpy(&settings.samplen, ncount+2, sizeof(int), cudaMemcpyDeviceToHost);
-
         
     }
     

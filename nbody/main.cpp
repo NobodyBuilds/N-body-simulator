@@ -368,7 +368,6 @@ void calcKernels()
     // settings.spikycoef2 = 15.0f / (settings.pi * h5);
     settings.Sdensity = settings.pollycoef6 * h6; // self density at r=0
     settings.spikycoef = 15.0f / (settings.pi * h6);
-    settings.ndensity = settings.spikycoef * h5; // near self density at r=0
     settings.spikygradv = -45 / (settings.pi * h6);
     settings.viscosity = 45 / (settings.pi * h6);
     settings.h2 = settings.h * settings.h;
@@ -569,7 +568,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(screenWidth, screenHeight, "fluid Simulation - OpenGL", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(screenWidth, screenHeight, "n body Simulation - OpenGL", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "Failed create window\n";
