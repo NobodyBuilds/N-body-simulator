@@ -342,6 +342,7 @@ static void DrawSPHContent()
 
     // ── Viscosity ─────────────────────────────────────────────────────────────
     Sec("Viscosity");
+
     ImGui::DragFloat("Viscosity##fl", &settings.visc, 0.001f, 0.f, 10.0f, "%.4f"); SYNC;
     ImGui::SetItemTooltip("Velocity averaging between neighbours.  Low = water.  High = honey / thick fluid.");
 

@@ -17,6 +17,7 @@ extern "C" {
 	void unregisterGLBuffer();
 	void changestarsize();
 	void changestarmass();
+	void render();
 #ifdef __cplusplus
 }
 #endif

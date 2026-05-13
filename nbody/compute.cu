@@ -1,7 +1,9 @@
-﻿#include "compute.h"
+﻿
+
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-
+#include "compute.h"
 
 #include <atomic>
 #include <cuda.h>
@@ -114,14 +116,17 @@ float4* velocity = nullptr; // vx,vy,vz,free
 
 float4* accelration = nullptr; // ax,ay,az,heat in heat
 
+float4* pdata = nullptr; //size,mass,h,idk
+
+int* isstar = nullptr; // 1 if star, 0 if not
+
 
 // stroage for sorting
 float4* positions_sorted = nullptr;
 float4* velocity_sorted = nullptr;
 float4* accelration_sorted = nullptr;
+float4* pdata_sorted = nullptr;
 
-int* isstar = nullptr; // 1 if star, 0 if not, used for special rendering and physics for star
-float4* pdata = nullptr; //size,mass,h,idk
 
 // constant struct for kernels to reduce memory occupancy and register load, also to avoid passing too many parameters to kernels which can cause register spilling and performance 
 
@@ -145,19 +150,19 @@ extern "C" void syncstruct() {
     h.viscstrength = settings.viscosity;
     h.viscK = settings.visc;
     h.count = settings.count;
-	h.G = settings.G;
+    h.G = settings.G;
     h.centermass = settings.centermass;
-	h.orbitalspeed = settings.orbitspeed;
-	h.radius = settings.radius;
-	h.maxradius = settings.maxradius;
-	h.starsize = settings.starsize;
-	h.mode = settings.mode;
-	h.screenHeight = settings.screenHeight;
-	h.screenHeight = settings.screenHeight;
+    h.orbitalspeed = settings.orbitspeed;
+    h.radius = settings.radius;
+    h.maxradius = settings.maxradius;
+    h.starsize = settings.starsize;
+    h.mode = settings.mode;
+    h.screenHeight = settings.screenHeight;
+    h.screenHeight = settings.screenHeight;
     h.dst = settings.dst;
-	h.impactspeed = settings.impactspeed;
-	h.yspeed = settings.yspeed;
-	h.lockstar = settings.lockstar;
+    h.impactspeed = settings.impactspeed;
+    h.yspeed = settings.yspeed;
+    h.lockstar = settings.lockstar;
     cudaMemcpyToSymbol(d, &h, sizeof(data));
 
 }
@@ -172,12 +177,13 @@ extern "C" bool initgpu(int count)
     cudaMalloc(&positions_sorted, count * sizeof(float4));
     cudaMalloc(&velocity_sorted, count * sizeof(float4));
     cudaMalloc(&accelration_sorted, count * sizeof(float4));
-	cudaMalloc(&isstar, count * sizeof(int));
-	cudaMalloc(&pdata, count * sizeof(float4));
+    cudaMalloc(&isstar, count * sizeof(int));
+    cudaMalloc(&pdata, count * sizeof(float4));
+	cudaMalloc(&pdata_sorted, count * sizeof(float4));
 
 
 
-    printf("Total particle mem allocated: %.2f MB\n", (count * (7 * sizeof(float4) +(3* sizeof(int)))) / (1024.0 * 1024.0)); // prints the mem size for total allocation with maxpartiucles buffer
+    printf("Total particle mem allocated: %.2f MB\n", (count * (8 * sizeof(float4) + (1 * sizeof(int)))) / (1024.0 * 1024.0)); // prints the mem size for total allocation with maxpartiucles buffer
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
@@ -195,12 +201,12 @@ extern "C" void freegpu()
     cudaFree(velocity_sorted);
     cudaFree(accelration);
     cudaFree(accelration_sorted);
-	cudaFree(isstar);
-	cudaFree(pdata);
+    cudaFree(isstar);
+    cudaFree(pdata);
 
 
-	pdata = nullptr;
-	isstar = nullptr;
+    pdata = nullptr;
+    isstar = nullptr;
     positions = nullptr;
     velocity = nullptr;
     accelration = nullptr;
@@ -259,7 +265,7 @@ __global__ void packToVBOKernel(
 
         float speed = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 
-        float heat = (speed + size[i].y )* 0.5f;
+        float heat = (speed + size[i].y) * 0.5f;
         // heat += mass[i];
         a.w += (heat * heatMultipler) * dt; // acl.w=heat;
 
@@ -510,10 +516,12 @@ __global__ void reorderParticlesKernel(
     const float4* __restrict__ posIn,
     const float4* __restrict__ velIn,
     const float4* __restrict__ aclIn,
+    const float4* __restrict__ pd,
 
     float4* posOut,
     float4* velOut,
-    float4* aclOut
+    float4* aclOut,
+	float4* pdOut
 
 )
 {
@@ -525,6 +533,7 @@ __global__ void reorderParticlesKernel(
     float4 pi = __ldg(&posIn[src]);
     float4 vi = __ldg(&velIn[src]);
     float4 ai = __ldg(&aclIn[src]);
+	float4 pdi = __ldg(&pd[src]);
     // using pridicted positiopn into sorted arrays for density and pressure kernel  and help in stability
     // directly writeing to sorted arrays to avoid extra copy and also we will be using predicted position for density and pressure calculation which will help in stability
     float px = pi.x + vi.x * dt;
@@ -534,6 +543,7 @@ __global__ void reorderParticlesKernel(
     posOut[i] = { px, py, pz, pi.w };
     velOut[i] = vi;
     aclOut[i] = ai;
+	pdOut[i] = pdi;
 }
 
 __global__ void clearActiveCellsKernel(
@@ -604,13 +614,13 @@ void buildDynamicGrid(
     reorderParticlesKernel << <blocks, THREADS >> > (
         numParticles, dt,
         d_particleIndex,     // tells us: sorted slot i came from original slot src
-        positions, velocity, accelration, // source
-        positions_sorted, velocity_sorted, accelration_sorted);
+        positions, velocity, accelration,pdata, // source
+        positions_sorted, velocity_sorted, accelration_sorted,pdata_sorted);
 }
 
 // sph-functions
 
-__global__ void computeDensity(float cellSize, float4* pos, int hs, const int* __restrict__ cellstart, const int* __restrict__ cellend, const int* __restrict__ particleindex,float4* pdata)
+__global__ void computeDensity(float cellSize, float4* pos, int hs, const int* __restrict__ cellstart, const int* __restrict__ cellend, const int* __restrict__ particleindex, float4* pdata)
 {
     // no shared memory because the arrays are sorted and coalesced access is good enough, also we are doing more computation per neighbor which helps hide latency.
     // shared memory has been tried and got no difference
@@ -628,7 +638,7 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
     int cx, cy, cz;
     getCell(xi, yi, zi, cellSize, cx, cy, cz);
 
-    
+
 
     float m_i = __ldg(&pdata[i].y);
 
@@ -653,37 +663,37 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
 
                 if (start > 0)
 
-                /*  if (debug && count > 0) {
-                     printf("  Neighbor cell (%d,%d,%d) hash=%u: %d particles\n",
-                          cx + dx, cy + dy, cz + dz, hash, count);
-                  }*/
+                    /*  if (debug && count > 0) {
+                         printf("  Neighbor cell (%d,%d,%d) hash=%u: %d particles\n",
+                              cx + dx, cy + dy, cz + dz, hash, count);
+                      }*/
 
-                for (int k = start; k < end; k++)
-                {
-                    int j = k; // particleindex[k]; // index of neighbor particle in sorted array
-
-                    if (j == i)
-                        continue;
-                    float4 pj = __ldg(&pos[j]);
-                    float dx_val = xi - pj.x;
-                    float dy_val = yi - pj.y;
-                    float dz_val = zi - pj.z;
-                    float r2 = dx_val * dx_val + dy_val * dy_val + dz_val * dz_val;
-
-                    if (r2 < d.h2)
+                    for (int k = start; k < end; k++)
                     {
-                        float invR = rsqrtf(r2 + 1e-12f);
-                        float r = r2 * invR;
-                        float v = d.h2 - r2;
-                        // float v2 = h - r;
-                        float vcube = v * v * v;
+                        int j = k; // particleindex[k]; // index of neighbor particle in sorted array
 
-                        float D = d.pollycoef6 * vcube; // precomputed pollycoef6
-                        // float d = spikycoef2 * v2 * v2;
-                        float m_j = __ldg(&pdata[j].y); // mass
-                        rho += m_j * D;
+                        if (j == i)
+                            continue;
+                        float4 pj = __ldg(&pos[j]);
+                        float dx_val = xi - pj.x;
+                        float dy_val = yi - pj.y;
+                        float dz_val = zi - pj.z;
+                        float r2 = dx_val * dx_val + dy_val * dy_val + dz_val * dz_val;
+
+                        if (r2 < d.h2)
+                        {
+                            float invR = rsqrtf(r2 + 1e-12f);
+                            float r = r2 * invR;
+                            float v = d.h2 - r2;
+                            // float v2 = h - r;
+                            float vcube = v * v * v;
+
+                            float D = d.pollycoef6 * vcube; // precomputed pollycoef6
+                            // float d = spikycoef2 * v2 * v2;
+                            float m_j = __ldg(&pdata[j].y); // mass
+                            rho += m_j * D;
+                        }
                     }
-                }
             }
         }
     }
@@ -712,7 +722,7 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     float zi = p.z;
 
     float3 force = { 0.0f, 0.0f, 0.0f };
-  
+
 
     float p_i = d.pressure * (p.w - d.restDensity);
 
@@ -722,7 +732,7 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     int cx, cy, cz;
     getCell(xi, yi, zi, cellSize, cx, cy, cz);
 
-   
+
     float rho_i = p.w;
 
 
@@ -748,58 +758,58 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
 
                 if (start > 0)
 
-                for (int k = start; k < end; k++)
-                {
-                    int j = k; // particleIndex[k]; // index of neighbor particle in sorted array
-
-                    if (j == i)
-                        continue;
-                    float4 pj = __ldg(&pos[j]);
-                    float4 vj = __ldg(&vel[j]);
-                    float dx_val = xi - pj.x;
-                    float dy_val = yi - pj.y;
-                    float dz_val = zi - pj.z;
-                    float r2 = dx_val * dx_val + dy_val * dy_val + dz_val * dz_val;
-
-                    if (r2 < d.h2 && r2 > 1e-9f)
+                    for (int k = start; k < end; k++)
                     {
+                        int j = k; // particleIndex[k]; // index of neighbor particle in sorted array
 
-                        float invR = rsqrtf(r2 + 1e-12f);
-                        float r = r2 * invR;
+                        if (j == i)
+                            continue;
+                        float4 pj = __ldg(&pos[j]);
+                        float4 vj = __ldg(&vel[j]);
+                        float dx_val = xi - pj.x;
+                        float dy_val = yi - pj.y;
+                        float dz_val = zi - pj.z;
+                        float r2 = dx_val * dx_val + dy_val * dy_val + dz_val * dz_val;
 
-                        float p_j = d.pressure * (pj.w - d.restDensity);
+                        if (r2 < d.h2 && r2 > 1e-9f)
+                        {
 
-                        float3 dir = { dx_val * invR, dy_val * invR, dz_val * invR };
+                            float invR = rsqrtf(r2 + 1e-12f);
+                            float r = r2 * invR;
 
+                            float p_j = d.pressure * (pj.w - d.restDensity);
 
-                        /*  if (debug && neighborCount <= 3) {
-                              printf("  Neighbor %d: dist=%.3f rho=%.6f p=%.6f\n",
-                                  j, r, density[j], p_j);
-                          }*/
-                        float rho_j = pj.w;
-                        float x = d.h - r;
-                        float gradW = d.spikyGradv * x * x; // precomputed gradw in negative value
-
-                        float pressureterm = pressuretermRho_i + p_j / (rho_j * rho_j);
-                        // float pressureterm = (p_i + p_j)/2;
-
-                        float m_j = __ldg(&pdata[j].y); // particle mass
-
-                        force += -m_j * pressureterm * gradW * dir;
-
-                        float4 v2 = __ldg(&vel[j]);
-                        float3 vj = make_float3(v2.x, v2.y, v2.z);
-                        float3 vij = (vj - vi);
-
-                        float lapW = d.viscK * x;
-                        float viscosityCoeff = d.viscstrength;
-                        visc += viscosityCoeff * m_j * vij / rho_j * lapW;
+                            float3 dir = { dx_val * invR, dy_val * invR, dz_val * invR };
 
 
+                            /*  if (debug && neighborCount <= 3) {
+                                  printf("  Neighbor %d: dist=%.3f rho=%.6f p=%.6f\n",
+                                      j, r, density[j], p_j);
+                              }*/
+                            float rho_j = pj.w;
+                            float x = d.h - r;
+                            float gradW = d.spikyGradv * x * x; // precomputed gradw in negative value
+
+                            float pressureterm = pressuretermRho_i + p_j / (rho_j * rho_j);
+                            // float pressureterm = (p_i + p_j)/2;
+
+                            float m_j = __ldg(&pdata[j].y); // particle mass
+
+                            force += -m_j * pressureterm * gradW * dir;
+
+                            float4 v2 = __ldg(&vel[j]);
+                            float3 vj = make_float3(v2.x, v2.y, v2.z);
+                            float3 vij = (vj - vi);
+
+                            float lapW = d.viscK * x;
+                            float viscosityCoeff = d.viscstrength;
+                            visc += viscosityCoeff * m_j * vij / rho_j * lapW;
 
 
+
+
+                        }
                     }
-                }
             }
         }
     }
@@ -807,9 +817,9 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     float4 accl;
     float4 delta;
 
-    accl.z = (force.z + visc.z)/rho_i ;
-    accl.x = (force.x + visc.x)/rho_i ;
-    accl.y = (force.y + visc.y)/rho_i ;
+    accl.z = (force.z + visc.z) / rho_i;
+    accl.x = (force.x + visc.x) / rho_i;
+    accl.y = (force.y + visc.y) / rho_i;
     accl.w = 0.0f;
 
 
@@ -833,7 +843,7 @@ __global__ void scatterarray(int numParticles, float dt, float4* aclin, float4* 
     aclout[org] = accl;
     float4 v;
     v.x = accl.x * dt * 0.5;
-    v.y = accl.y  * dt * 0.5;
+    v.y = accl.y * dt * 0.5;
     v.z = accl.z * dt * 0.5;
 
     vel[org] += v;
@@ -891,47 +901,47 @@ __global__ void debug(int n, float4* pos, float4* vel, int* ncount)
 }
 //gravity
 
-__global__ void gravityKernel(float4* pos, float4* acl,float4* pdata) {
+__global__ void gravityKernel(float4* pos, float4* acl, float4* pdata) {
 
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= d.count)
         return;
 
-	float4 p = __ldg(&pos[i]);
-	float m_i = __ldg(&pdata[i].y);
-    float4 a={0.0f,0.0f,0.0f,0.0f};
+    float4 p = __ldg(&pos[i]);
+    float m_i = __ldg(&pdata[i].y);
+    float4 a = { 0.0f,0.0f,0.0f,0.0f };
     for (int j = 0; j < d.count; j++) {
         if (j == i)continue;
-		float4 pj = __ldg(&pos[j]);
-	float m_j = __ldg(&pdata[j].y);
+        float4 pj = __ldg(&pos[j]);
+        float m_j = __ldg(&pdata[j].y);
         float dx = pj.x - p.x;
-		float dy = pj.y - p.y;
+        float dy = pj.y - p.y;
         float dz = pj.z - p.z;
-		float dist = dx * dx + dy * dy + dz * dz + (0.1f* d.h) * (0.1f* d.h);
-		float invdist = rsqrtf(dist);
-		float inv3 = invdist * invdist * invdist;
-		  
-        float force = d.G *( m_j   * inv3);
-		a.x += (force) * dx;
-        a.y += (force) * dy;
-		a.z += (force) * dz;
+        float dist = dx * dx + dy * dy + dz * dz + (0.1f * d.h) * (0.1f * d.h);
+        float invdist = rsqrtf(dist);
+        float inv3 = invdist * invdist * invdist;
+
+        float force = d.G * (m_j * inv3);
+        a.x += (force*dx) /m_i;
+        a.y += (force*dy) /m_i;
+        a.z += (force*dz) /m_i;
 
     }
     a.w = 0.0f;
-	acl[i] += a ;
-    
+    acl[i] += a;
+
 
 }
 
-__global__ void starCollisionKernel(float4* pos,float4* vel ,float4* pdata,int* star) {
+__global__ void starCollisionKernel(float4* pos, float4* vel, float4* pdata, int* star) {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
     if (j >= d.count) return;
-    if (star[j]==1) return; 
-	float4 pj = __ldg(&pos[j]);
-	float4 vj = __ldg(&vel[j]);
+    if (star[j] == 1) return;
+    float4 pj = __ldg(&pos[j]);
+    float4 vj = __ldg(&vel[j]);
     for (int i = 0; i < d.count; i++) {
-        if (star[i]==0) continue;
-		float4 pi = __ldg(&pos[i]);
+        if (star[i] == 0) continue;
+        float4 pi = __ldg(&pos[i]);
         float3 r = make_float3(pj.x - pi.x, pj.y - pi.y, pj.z - pi.z);
         float dist = length(r);
         float minDist = pdata[i].x + pdata[j].x;
@@ -947,7 +957,7 @@ __global__ void starCollisionKernel(float4* pos,float4* vel ,float4* pdata,int* 
 }
 
 //intigration and update
-__global__ void updateKernel(float dt, float4* pos, float4* vel, float4* acl,int* star
+__global__ void updateKernel(float dt, float4* pos, float4* vel, float4* acl, int* star
 )
 {
     // Vec3 acc_new;
@@ -975,8 +985,8 @@ __global__ void updateKernel(float dt, float4* pos, float4* vel, float4* acl,int
 
     if (d.lockstar && star[i] == 1) {
         vl.x = 0.0f;
-		vl.y = 0.0f;
-		vl.z = 0.0f;
+        vl.y = 0.0f;
+        vl.z = 0.0f;
     }
     p.x += vl.x * dt;
     p.y += vl.y * dt;
@@ -992,7 +1002,7 @@ __global__ void updateKernel(float dt, float4* pos, float4* vel, float4* acl,int
     acl[i] = a;
 }
 //spawning
-__device__ inline float rand01(unsigned int& seed)  
+__device__ inline float rand01(unsigned int& seed)
 {
     seed ^= seed << 13;
     seed ^= seed >> 17;
@@ -1002,16 +1012,16 @@ __device__ inline float rand01(unsigned int& seed)
 __device__ float randf(unsigned int& state, float min, float max) {
     return min + (max - min) * rand01(state);
 }
-__global__ void registerKernel(float4* position, float4* velocity, float4* accelration,int* isstar,float4* pdata)
+__global__ void registerKernel(float4* position, float4* velocity, float4* accelration, int* isstar, float4* pdata)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= d.count) return;
-   
 
-  
-   
 
-   
+
+
+
+
 
     unsigned int key = i * 1234567u;
     float x = 0.0f, y = 0.0f, z = 0.0f;
@@ -1036,12 +1046,12 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             float angle = randf(key, 0.0f, 2.0f * CUDART_PI_F);
             float r = randf(key, d.radius, d.maxradius);
 
-            
+
             x = cosf(angle) * r;
             z = sinf(angle) * r;
-            y = randf(key, -2.5f, 2.5f); 
+            y = randf(key, -2.5f, 2.5f);
 
-           
+
             float v = sqrtf(d.G * d.centermass / r) * d.orbitalspeed;
             vx = sinf(angle) * v;
             vz = -cosf(angle) * v;
@@ -1056,7 +1066,7 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
     {
         int half = d.count / 2;
 
-       
+
         float halfSep = d.maxradius * 2.0f;
         float3 c1 = { -halfSep, 0.0f, 0.0f };
         float3 c2 = { halfSep, 0.0f, 0.0f };
@@ -1067,7 +1077,7 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             size = d.starsize;
             iscenter = 1;
             float3 c = (i == 0) ? c1 : c2;
-            x = c.x; y = 0.0f; z = c.z; 
+            x = c.x; y = 0.0f; z = c.z;
         }
         else
         {
@@ -1076,8 +1086,8 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             float r = randf(key, d.radius, d.maxradius);
 
             x = c.x + cosf(angle) * r;
-            z = c.z + sinf(angle) * r;   
-            y = randf(key, -3.0f, 3.0f); 
+            z = c.z + sinf(angle) * r;
+            y = randf(key, -3.0f, 3.0f);
 
             float v = sqrtf(d.G * d.centermass / r) * d.orbitalspeed;
             vx = -sinf(angle) * v;
@@ -1150,12 +1160,12 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             x = separation + ix * spacing;
             z = iy * spacing;
             y = iz * spacing;
-            vx = -d.impactspeed * cosf(CUDART_PI_F / 4.0f);  
+            vx = -d.impactspeed * cosf(CUDART_PI_F / 4.0f);
             vz = d.yspeed * sinf(CUDART_PI_F / 4.0f);
         }
     }
 
-   
+
     position[i] = { x,    y,    z,    0.0f };
     velocity[i] = { vx,   vy,   vz,   0.0f };
     accelration[i] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -1168,7 +1178,7 @@ extern "C" void registerBodies()
 {
     int Block = (settings.count + THREADS - 1) / THREADS;
     registerKernel << <Block, THREADS >> > (
-        positions, velocity, accelration,isstar,pdata);
+        positions, velocity, accelration, isstar, pdata);
 }
 
 extern "C" void computephysics(float dt)
@@ -1181,7 +1191,6 @@ extern "C" void computephysics(float dt)
     //  float subdt = settings.fixedDt / settings.substeps;
     float deltaTime = dt / settings.substeps;
 
-    cudaGraphicsUnmapResources(1, &g_vboResource, 0);
 
     if (settings.nopause)
     {
@@ -1189,47 +1198,67 @@ extern "C" void computephysics(float dt)
         {
             // update positipons
 
-            updateKernel << <blocks, THREADS >> > (deltaTime, positions, velocity, accelration,isstar);
+            updateKernel << <blocks, THREADS >> > (deltaTime, positions, velocity, accelration, isstar);
             // acelrations reset
-           
+
+            if (settings.sph || settings.gravity) {
+                buildDynamicGrid(d_cellsize, positions, deltaTime);
+            }
             if (settings.sph)
             {
                 // builds grid and sorted arrays with pridicted positions
-                buildDynamicGrid(d_cellsize, positions, deltaTime);
 
                 // uses p pos for stability
-                computeDensity << <blocks, THREADS >> > (d_cellsize, positions_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex,pdata);
+                computeDensity << <blocks, THREADS >> > (d_cellsize, positions_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata_sorted);
 
                 // reads from pridicted pos and writes back to orginal velocity array with velocity verlet 2nd step
-                computePressure << <blocks, THREADS >> > (d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata);
-
+                computePressure << <blocks, THREADS >> > (d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata_sorted);
 
 
             }
             if (settings.gravity) {
-                gravityKernel << <blocks, THREADS >> > (positions_sorted, accelration_sorted, pdata);
+                gravityKernel << <blocks, THREADS >> > (positions_sorted, accelration_sorted, pdata_sorted);
             }
 
-                scatterarray << <blocks, THREADS >> > (totalBodies, deltaTime, accelration_sorted, accelration, velocity, d_particleIndex);
+            scatterarray << <blocks, THREADS >> > (totalBodies, deltaTime, accelration_sorted, accelration, velocity, d_particleIndex);
 
-				starCollisionKernel << <blocks, THREADS >> > (positions, velocity, pdata, isstar);
+            starCollisionKernel << <blocks, THREADS >> > (positions, velocity, pdata, isstar);
         }
-        
+
     }
-    
 
-    // cudaEventRecord(start);
-    if (g_vboResource)
-    {
-        cudaGraphicsMapResources(1, &g_vboResource, 0);
 
-        GLVertex* d_vbo = nullptr;
-        size_t nbytes = 0;
-        cudaGraphicsResourceGetMappedPointer((void**)&d_vbo, &nbytes, g_vboResource);
+    //// cudaEventRecord(start);
+    //if (g_vboResource)
+    //{
+    //    cudaGraphicsMapResources(1, &g_vboResource, 0);
 
-        packToVBOKernel << <blocks, THREADS >> > (
-            settings.count, positions, velocity, accelration, d_vbo, settings.heateffect, settings.heatMultiplier, deltaTime, settings.cold, pdata);
-    }
+    //    GLVertex* d_vbo = nullptr;
+    //    size_t nbytes = 0;
+    //    cudaGraphicsResourceGetMappedPointer((void**)&d_vbo, &nbytes, g_vboResource);
+
+    //    packToVBOKernel << <blocks, THREADS >> > (
+    //        settings.count, positions, velocity, accelration, d_vbo, settings.heateffect, settings.heatMultiplier, deltaTime, settings.cold, pdata);
+    //}
+}
+
+extern "C" void render() {
+
+    int blocks = (settings.count + THREADS - 1) / THREADS;
+
+    cudaGraphicsMapResources(1, &g_vboResource, 0);
+
+    GLVertex* d_vbo = nullptr;
+    size_t nbytes = 0;
+    cudaGraphicsResourceGetMappedPointer((void**)&d_vbo, &nbytes, g_vboResource);
+
+    packToVBOKernel << <blocks, THREADS >> > (
+        settings.count, positions, velocity, accelration,
+        d_vbo, settings.heateffect, settings.heatMultiplier,
+        settings.fixedDt, settings.cold, pdata);
+
+
+    cudaGraphicsUnmapResources(1, &g_vboResource, 0);
 }
 
 __global__ void changestarsizeKernel(float4* pdata, int* isstar, float newsize) {
@@ -1245,7 +1274,7 @@ __global__ void changestarsizeKernel(float4* pdata, int* isstar, float newsize) 
 extern "C" void changestarsize() {
 
     int blocks = (settings.count + THREADS - 1) / THREADS;
-	changestarsizeKernel << <blocks, THREADS >> > ( pdata,isstar, settings.starsize);
+    changestarsizeKernel << <blocks, THREADS >> > (pdata, isstar, settings.starsize);
 }
 
 __global__ void changestarmassKernel(float4* pdata, int* isstar, float newmass) {

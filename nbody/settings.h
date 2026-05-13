@@ -41,7 +41,6 @@ struct param {
 	float min_density, max_density, avg_density = 0;
 	float min_neardensity, max_neardensity, avg_neardensity = 0;
 
-
 	double fuc_ms = 0.0;
 	// === INT VARIABLES (4 bytes each) ===
 	int totalBodies = 10000;
