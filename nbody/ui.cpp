@@ -323,7 +323,6 @@ static void DrawSPHContent()
         ImGui::InputFloat("poly6", &settings.pollycoef6, 0, 0, "%.4e");
         ImGui::InputFloat("spiky", &settings.spikycoef, 0, 0, "%.4e");
         ImGui::InputFloat("spiky grad", &settings.spikygradv, 0, 0, "%.4e");
-        ImGui::InputFloat("visc lap", &settings.viscosity, 0, 0, "%.4e");
         ImGui::InputFloat("self rho", &settings.Sdensity, 0, 0, "%.4e");
         ImGui::EndDisabled();
         ImGui::TreePop();
@@ -331,9 +330,9 @@ static void DrawSPHContent()
 
     // ── Density ──────────────────────────────────────────────────────────────
     Sec("Density");
-    ImGui::DragFloat("Rest rho##fl", &settings.rest_density, 0.001f, 0.f, 10000.f, "%.5f"); SYNC;
+    ImGui::DragFloat("Rest rho##fl", &settings.restdensity, 0.001f, 0.f, 10000.f, "%.5f"); SYNC;
     ImGui::SetItemTooltip("Target equilibrium density.  Raise to attract particles.  Lower to spread them.");
-
+	ImGui::DragFloat("gamma##fl", &settings.gamma, 0.1f, 0.f, 10.f, "%.3f"); SYNC;
     // ── Pressure ─────────────────────────────────────────────────────────────
     Sec("Pressure");
     ImGui::DragFloat("Stiffness k", &settings.pressure, 2.f, 0.f, 5000.f, "%.0f"); SYNC;
@@ -343,8 +342,8 @@ static void DrawSPHContent()
     // ── Viscosity ─────────────────────────────────────────────────────────────
     Sec("Viscosity");
 
-    ImGui::DragFloat("Viscosity##fl", &settings.visc, 0.001f, 0.f, 10.0f, "%.4f"); SYNC;
-    ImGui::SetItemTooltip("Velocity averaging between neighbours.  Low = water.  High = honey / thick fluid.");
+    ImGui::DragFloat("alpha visc", &settings.alpha_v, 0.01f, 0.f, 10.0f, "%.4f"); SYNC;
+    ImGui::DragFloat("beta visc", &settings.beta_v, 0.01f, 0.f, 10.0f, "%.4f"); SYNC;
 
     // ── Forces ───────────────────────────────────────────────────────────────
 

@@ -47,6 +47,7 @@ __host__ __device__ inline float3 operator+(float3 a, float3 b) { return { a.x +
 __host__ __device__ inline float3 operator-(float3 a, float3 b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
 __host__ __device__ inline float3 operator*(float3 a, float s) { return { a.x * s, a.y * s, a.z * s }; }
 __host__ __device__ inline float3 operator/(float3 a, float s) { return { a.x / s, a.y / s, a.z / s }; }
+__device__ inline float4 operator/(float4 a, float s) { return { a.x / s, a.y / s, a.z /s,a.w/s}; }
 __host__ __device__ inline float3 operator*(float s, float3 a)
 {
     return { a.x * s, a.y * s, a.z * s };
@@ -144,11 +145,7 @@ extern "C" void syncstruct() {
     h.pollycoef6 = settings.pollycoef6;
     h.spikycoef = settings.spikycoef;
     h.pressure = settings.pressure;
-    h.restDensity = settings.rest_density;
     h.spikyGradv = settings.spikygradv;
-    h.viscK = settings.visc;
-    h.viscstrength = settings.viscosity;
-    h.viscK = settings.visc;
     h.count = settings.count;
     h.G = settings.G;
     h.centermass = settings.centermass;
@@ -163,6 +160,14 @@ extern "C" void syncstruct() {
     h.impactspeed = settings.impactspeed;
     h.yspeed = settings.yspeed;
     h.lockstar = settings.lockstar;
+	h.gamma = settings.gamma;
+	h.alpha_v = settings.alpha_v;
+	h.beta_v = settings.beta_v;
+	h.restdensity = settings.restdensity;
+    if (settings.mode == 2) {
+		settings.lockstar = false;
+		h.lockstar = false;
+    }
     cudaMemcpyToSymbol(d, &h, sizeof(data));
 
 }
@@ -256,7 +261,7 @@ __global__ void packToVBOKernel(
         return;
     float4 p = __ldg(&pos[i]);
     float4 v = __ldg(&vel[i]);
-    float4 a = acl[i];
+    float4 a = __ldg(&acl[i]);
 
     int3 c = { 0, 0, 0 };
 
@@ -266,15 +271,17 @@ __global__ void packToVBOKernel(
         float speed = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 
         float heat = (speed + size[i].y) * 0.5f;
-        // heat += mass[i];
+         heat += size[i].y;
         a.w += (heat * heatMultipler) * dt; // acl.w=heat;
 
         a.w *= expf(-heatDecay * dt);
         a.w = clamp(a.w, 0.0f, 100.0f);
-        // load once to get col.w
+        //// load once to get col.w
+
+      
         float t = clamp(a.w / 100.0f, 0.0f, 1.0f);
         t = pow(t, 0.95f);
-        acl[i].w = a.w;
+       // acl[i].w = a.w;
 
         if (t < 0.35f)
         {
@@ -661,7 +668,6 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
                     continue;
 
 
-                if (start > 0)
 
                     /*  if (debug && count > 0) {
                          printf("  Neighbor cell (%d,%d,%d) hash=%u: %d particles\n",
@@ -707,7 +713,7 @@ __global__ void computeDensity(float cellSize, float4* pos, int hs, const int* _
     //vel[i].w = rhon;
 }
 
-__global__ void computePressure(float cellSize, const float4* __restrict__ pos, float4* acl, float4* vel, int hs, int* cellstart, int* cellend, int* particleIndex, float4* pdata)
+__global__ void computePressure(float dt,float cellSize, const float4* __restrict__ pos, float4* acl, float4* vel, int hs, int* cellstart, int* cellend, int* particleIndex, float4* pdata)
 {
 
     // no shared memory because the arrays are sorted and coalesced access is good enough, also we are doing more computation per neighbor which helps hide latency.
@@ -724,9 +730,10 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     float3 force = { 0.0f, 0.0f, 0.0f };
 
 
-    float p_i = d.pressure * (p.w - d.restDensity);
+    float p_i =  fmaxf(0.0f, d.pressure * (powf(p.w / d.restdensity, d.gamma) - 1.0f));
 
     float3 visc = { 0.0f, 0.0f, 0.0f };
+    float du = 0.0f;
 
     float3 vi = make_float3(v.x, v.y, v.z);
     int cx, cy, cz;
@@ -756,7 +763,6 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
                     continue;
 
 
-                if (start > 0)
 
                     for (int k = start; k < end; k++)
                     {
@@ -777,7 +783,7 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
                             float invR = rsqrtf(r2 + 1e-12f);
                             float r = r2 * invR;
 
-                            float p_j = d.pressure * (pj.w - d.restDensity);
+							float p_j =fmaxf(0.0f, d.pressure * (powf(pj.w / d.restdensity, d.gamma) - 1.0f));
 
                             float3 dir = { dx_val * invR, dy_val * invR, dz_val * invR };
 
@@ -797,15 +803,28 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
 
                             force += -m_j * pressureterm * gradW * dir;
 
-                            float4 v2 = __ldg(&vel[j]);
-                            float3 vj = make_float3(v2.x, v2.y, v2.z);
-                            float3 vij = (vj - vi);
+                            
+                            float3 vj3 = make_float3(vj.x, vj.y, vj.z);
+                            float3 v_ij = { vi.x - vj3.x, vi.y - vj3.y, vi.z - vj3.z };
+                            float3 r_ij = { dx_val, dy_val, dz_val };
+                            float vdotr = dot(v_ij, r_ij);
 
-                            float lapW = d.viscK * x;
-                            float viscosityCoeff = d.viscstrength;
-                            visc += viscosityCoeff * m_j * vij / rho_j * lapW;
-
-
+                            float Pi_ij = 0.0f;
+                            if (vdotr < 0.0f)   
+                            {
+                                float mu_ij = (d.h * vdotr) / (r2 + 0.01f * d.h2);
+                                float c_i = sqrtf(fabsf(d.gamma * d.pressure / d.restdensity * powf(rho_i / d.restdensity, d.gamma - 1.0f)));
+                                float c_j = sqrtf(fabsf(d.gamma * d.pressure / d.restdensity * powf(rho_j / d.restdensity, d.gamma - 1.0f)));
+                                float c_ij = 0.5f * (c_i + c_j);
+                                float rho_ij = 0.5f * (rho_i + rho_j);
+                                float alpha = d.alpha_v, beta = d.beta_v;//add to ui
+                                Pi_ij = (-alpha * c_ij * mu_ij + beta * mu_ij * mu_ij) / rho_ij;
+                                visc.x -= m_j * Pi_ij * gradW * dir.x;
+                                visc.y -= m_j * Pi_ij * gradW * dir.y;
+                                visc.z -= m_j * Pi_ij * gradW * dir.z;
+                            }
+							float vvij_dot_gradw = dot(v_ij, dir) * gradW;
+							du += (pressuretermRho_i + 0.5f * Pi_ij) * m_j * vvij_dot_gradw;
 
 
                         }
@@ -817,10 +836,10 @@ __global__ void computePressure(float cellSize, const float4* __restrict__ pos, 
     float4 accl;
     float4 delta;
 
-    accl.z = (force.z + visc.z) / rho_i;
-    accl.x = (force.x + visc.x) / rho_i;
-    accl.y = (force.y + visc.y) / rho_i;
-    accl.w = 0.0f;
+    accl.z = (force.z + visc.z) ;
+    accl.x = (force.x + visc.x) ;
+    accl.y = (force.y + visc.y) ;
+    accl.w = du*dt;
 
 
 
@@ -917,14 +936,15 @@ __global__ void gravityKernel(float4* pos, float4* acl, float4* pdata) {
         float dx = pj.x - p.x;
         float dy = pj.y - p.y;
         float dz = pj.z - p.z;
-        float dist = dx * dx + dy * dy + dz * dz + (0.1f * d.h) * (0.1f * d.h);
+        float eps = d.h * 0.5f;
+        float dist = dx * dx + dy * dy + dz * dz + eps*eps;
         float invdist = rsqrtf(dist);
         float inv3 = invdist * invdist * invdist;
 
         float force = d.G * (m_j * inv3);
-        a.x += (force*dx) /m_i;
-        a.y += (force*dy) /m_i;
-        a.z += (force*dz) /m_i;
+        a.x += force*dx;
+        a.y += force*dy;
+        a.z += force*dz;
 
     }
     a.w = 0.0f;
@@ -992,9 +1012,9 @@ __global__ void updateKernel(float dt, float4* pos, float4* vel, float4* acl, in
     p.y += vl.y * dt;
     p.z += vl.z * dt;
 
-    a.x = 0;
-    a.y = 0;
-    a.z = 0;
+    a.x = 0.0f;
+    a.y = 0.0f;
+    a.z = 0.0f;
 
 
     pos[i] = p;
@@ -1120,9 +1140,10 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             z = rad * sinf(phi) * sinf(theta);
             y = rad * cosf(phi);
 
+            
             vx = randf(key, -0.1f, 0.1f);
             vz = randf(key, -0.1f, 0.1f);
-            vy = randf(key, -0.1f, 0.1f);
+            vy = randf(key, -0.01f, 0.01f);
         }
     }
 
@@ -1160,8 +1181,8 @@ __global__ void registerKernel(float4* position, float4* velocity, float4* accel
             x = separation + ix * spacing;
             z = iy * spacing;
             y = iz * spacing;
-            vx = -d.impactspeed * cosf(CUDART_PI_F / 4.0f);
-            vz = d.yspeed * sinf(CUDART_PI_F / 4.0f);
+            vx = -d.impactspeed ;
+            vz = d.impactspeed;
         }
     }
 
@@ -1201,6 +1222,8 @@ extern "C" void computephysics(float dt)
             updateKernel << <blocks, THREADS >> > (deltaTime, positions, velocity, accelration, isstar);
             // acelrations reset
 
+            starCollisionKernel << <blocks, THREADS >> > (positions, velocity, pdata, isstar);
+
             if (settings.sph || settings.gravity) {
                 buildDynamicGrid(d_cellsize, positions, deltaTime);
             }
@@ -1212,7 +1235,7 @@ extern "C" void computephysics(float dt)
                 computeDensity << <blocks, THREADS >> > (d_cellsize, positions_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata_sorted);
 
                 // reads from pridicted pos and writes back to orginal velocity array with velocity verlet 2nd step
-                computePressure << <blocks, THREADS >> > (d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata_sorted);
+                computePressure << <blocks, THREADS >> > (deltaTime, d_cellsize, positions_sorted, accelration_sorted, velocity_sorted, HASH_TABLE_SIZE, d_cellStart, d_cellEnd, d_particleIndex, pdata_sorted);
 
 
             }
@@ -1222,7 +1245,6 @@ extern "C" void computephysics(float dt)
 
             scatterarray << <blocks, THREADS >> > (totalBodies, deltaTime, accelration_sorted, accelration, velocity, d_particleIndex);
 
-            starCollisionKernel << <blocks, THREADS >> > (positions, velocity, pdata, isstar);
         }
 
     }

@@ -8,18 +8,15 @@ struct param {
 	float particleMass = 1.0f;
 	float cold = 4.500f;
 	float heatMultiplier = 15.0f;
-	float h = 4.0f;
+	float h = 2.50f;
 	float h2 = h * h;
-	float rest_density = 0.04500f;
 	float pressure = 200.0f;
-	float visc = 0.0529f;
 	float pi = 3.14159265358979323846f;
 	float pollycoef6 = 0.0f;
 	float spikycoef = 0.0f;
 	float Sdensity = 0.0f;
 	float cellSize = 1.0f;
 	float spikygradv = 0.0f;
-	float viscosity = 0.0f;
 	float wx = 0.0f;
 	float wy = 0.0f;
 	float wz = 0.0f;
@@ -40,7 +37,11 @@ struct param {
 	float yspeed = 0.5f;
 	float min_density, max_density, avg_density = 0;
 	float min_neardensity, max_neardensity, avg_neardensity = 0;
+	float gamma = 1.3;//7/5,2-7,5/3
+	float alpha_v = 0.02f;
+	float beta_v = 0.04f;
 
+	float restdensity = 0.1f;
 	double fuc_ms = 0.0;
 	// === INT VARIABLES (4 bytes each) ===
 	int totalBodies = 10000;
@@ -59,7 +60,7 @@ struct param {
 	bool heateffect = true;
 	bool recordSim = false;
 	bool gui = true;
-	bool lockstar = true;
+	bool lockstar = false;
 };
 extern param settings;
 
@@ -73,10 +74,7 @@ struct data {
 	float pollycoef6;
 	float spikycoef;
 	float pressure;
-	float restDensity;
 	float spikyGradv;
-	float viscK;
-	float viscstrength;
 	float G;
 	float orbitalspeed;
 	float radius;
@@ -87,6 +85,10 @@ struct data {
 	float impactspeed;
 	float yspeed;
 	float particlesize;
+	float gamma;
+	float alpha_v;
+	float beta_v;
+	float restdensity;
 	int mode;
 	int count;
 	int screenWidth;

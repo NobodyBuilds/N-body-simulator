@@ -369,7 +369,6 @@ void calcKernels()
     settings.Sdensity = settings.pollycoef6 * h6; // self density at r=0
     settings.spikycoef = 15.0f / (settings.pi * h6);
     settings.spikygradv = -45 / (settings.pi * h6);
-    settings.viscosity = 45 / (settings.pi * h6);
     settings.h2 = settings.h * settings.h;
 
 
