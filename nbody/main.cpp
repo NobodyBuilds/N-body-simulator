@@ -324,24 +324,20 @@ float y, p;
 
 void restartSimulation()
 {
+    settings.firstframe = true;
     settings.screenHeight = currentHeight;
     settings.screenWidth = currentWidth;
     settings.count = settings.totalBodies;
+	unregisterGLBuffer();
     freeDynamicGrid();
     
     freegpu();
-    if (!initgpu(settings.count))
-    {
-        printf("Failed to allocate GPU memory for %d particles\n", settings.count);
-
-    }
-    if (!initDynamicGrid(settings.count))
-    {
-        printf("Failed to allocate dynamic grid for %d particles\n", settings.count);
-        freegpu();
-        return;
-    }
     syncstruct();
+    initgpu(settings.count);
+   
+    initDynamicGrid(settings.count);
+	registerGLBuffer(vbo);
+   
     registerBodies();
     settings.nopause = false;
 }
@@ -357,7 +353,6 @@ void calcKernels()
 {
     float h2 = settings.h * settings.h;
     float h3 = settings.h * settings.h * settings.h;
-    float h4 = h2 * h2;
     float h5 = h2 * h3;
     float h6 = h3 * h3;
     float h9 = h3 * h3 * h3;
@@ -370,6 +365,7 @@ void calcKernels()
     settings.spikycoef = 15.0f / (settings.pi * h6);
     settings.spikygradv = -45 / (settings.pi * h6);
     settings.h2 = settings.h * settings.h;
+    settings.ndensity = settings.spikycoef * h5;
 
 
 }
@@ -392,7 +388,7 @@ void drawAll()
         glm::radians(camera.fov),
         (float)currentWidth / (float)currentHeight,
         1.0f,
-        2000.0f);
+        10000.0f);
 
     glm::mat4 viewMat = glm::lookAt(
         camera.position,

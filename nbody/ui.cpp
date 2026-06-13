@@ -332,18 +332,19 @@ static void DrawSPHContent()
     Sec("Density");
     ImGui::DragFloat("Rest rho##fl", &settings.restdensity, 0.001f, 0.f, 10000.f, "%.5f"); SYNC;
     ImGui::SetItemTooltip("Target equilibrium density.  Raise to attract particles.  Lower to spread them.");
-	ImGui::DragFloat("gamma##fl", &settings.gamma, 0.1f, 0.f, 10.f, "%.3f"); SYNC;
+
     // ── Pressure ─────────────────────────────────────────────────────────────
     Sec("Pressure");
     ImGui::DragFloat("Stiffness k", &settings.pressure, 2.f, 0.f, 5000.f, "%.0f"); SYNC;
     ImGui::SetItemTooltip("Compression resistance.  Too high = instability.  Start ~100-500, increase gradually.");
-   
+    ImGui::DragFloat("Near k'", &settings.nearpressure, 2.f, 0.f, 10000.f, "%.0f"); SYNC;
+    ImGui::SetItemTooltip("Short-range repulsion.  Prevents collapse at close range.  Keep near the same order as k.");
+    // xsph 
+
 
     // ── Viscosity ─────────────────────────────────────────────────────────────
     Sec("Viscosity");
-
-    ImGui::DragFloat("alpha visc", &settings.alpha_v, 0.01f, 0.f, 10.0f, "%.4f"); SYNC;
-    ImGui::DragFloat("beta visc", &settings.beta_v, 0.01f, 0.f, 10.0f, "%.4f"); SYNC;
+    ImGui::DragFloat("XSPH##fl", &settings.epsilon, 0.001f, 0.f, 1.f, "%.9f"); SYNC;
 
     // ── Forces ───────────────────────────────────────────────────────────────
 
@@ -374,7 +375,9 @@ static void DrawNBodyContent()
 		   "  sphere cloud",
            "  earth and thia"
         };
-        if (ImGui::Combo("##rnmode", &settings.mode, modeNames, 4)) { restartSimulation(); } SYNC;
+        if (ImGui::Combo("##rnmode", &settings.mode, modeNames, 4)) { 
+            restartSimulation(); SYNC;
+        } SYNC;
        }
 
     // ── Gravity ───────────────────────────────────────────────────────────────
@@ -422,6 +425,10 @@ static void DrawNBodyContent()
 		ImGui::DragFloat("diagnol velocity##nb", &settings.yspeed, 0.001f, 0.0f, 10.0f, "%.4f"); SYNC;
 		ImGui::SetItemTooltip("Initial tangential velocity of the impactor (Thia) perpendicular to the impact direction.");
     }
+
+	ImGui::DragFloat("heat multiplier##nb", &settings.heatMultiplier, 0.1f, 0.f, 20.f, "%.1f"); SYNC;
+	ImGui::SetItemTooltip("How quickly movement raises the heat colour of bodies.");
+	ImGui::DragFloat("cold##nb", &settings.cold, 0.1f, 0.f, 20.f, "%.1f"); SYNC;
     ImGui::Spacing();
 	ImGui::Checkbox("gravity force##nb", &settings.gravity); 
 
@@ -439,7 +446,7 @@ static void DrawParticlesContent()
     // ── Spawn ─────────────────────────────────────────────────────────────────
     Sec("Spawn");
     ImGui::InputInt("Count##pt", &settings.totalBodies);
-    if (ImGui::IsItemDeactivatedAfterEdit()) { restartSimulation(); syncsettings = true; }
+    if (ImGui::IsItemDeactivatedAfterEdit()) { restartSimulation(); syncsettings = true; }SYNC;
     ImGui::SetItemTooltip("Particles spawned on restart.  Press Enter to confirm — restarts automatically.");
 
 

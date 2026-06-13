@@ -6,11 +6,11 @@ struct param {
 	float simspeed = 1.0f;
 	float size = 1.0f;
 	float particleMass = 1.0f;
-	float cold = 4.500f;
-	float heatMultiplier = 15.0f;
+	float cold = 2.00f;
+	float heatMultiplier = 12.0f;
 	float h = 2.50f;
 	float h2 = h * h;
-	float pressure = 200.0f;
+	float pressure = 1200.0f;
 	float pi = 3.14159265358979323846f;
 	float pollycoef6 = 0.0f;
 	float spikycoef = 0.0f;
@@ -26,22 +26,25 @@ struct param {
 	float fpsTimer = 0.0f;
 	float accumulator = 0.0f;
 	float fps = 0.0f;
-	float centermass = 5000.0f;
+	float centermass = 10000.0f;
 	float starsize = 15.0f;
 	float radius = 200.0f;
 	float maxradius = 500.0f;
 	float orbitspeed = 1.0f;
 	float G = 6.67f;
 	float dst = 250.0f;
-	float impactspeed = 10.0f;
+	float impactspeed = 6.0f;
 	float yspeed = 0.5f;
 	float min_density, max_density, avg_density = 0;
 	float min_neardensity, max_neardensity, avg_neardensity = 0;
-	float gamma = 1.3;//7/5,2-7,5/3
+	float gamma = 5.0f;//7/5,2-7,5/3
 	float alpha_v = 0.02f;
 	float beta_v = 0.04f;
+	float restdensity = 0.15f;
+	float epsilon = 0.03f;
+	float nearpressure = 200.0f;
+	float ndensity = 0.0f;
 
-	float restdensity = 0.1f;
 	double fuc_ms = 0.0;
 	// === INT VARIABLES (4 bytes each) ===
 	int totalBodies = 10000;
@@ -61,11 +64,16 @@ struct param {
 	bool recordSim = false;
 	bool gui = true;
 	bool lockstar = false;
+	bool firstframe = true;
 };
 extern param settings;
 
 struct data {
 	float dt;
+	float restdensity;
+	float epsilon;
+	float nearpressure;
+	float ndensity;
 	float particlemass;
 	float h;
 	float spacing;
@@ -88,7 +96,6 @@ struct data {
 	float gamma;
 	float alpha_v;
 	float beta_v;
-	float restdensity;
 	int mode;
 	int count;
 	int screenWidth;
